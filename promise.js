@@ -4,6 +4,15 @@ const PENDING   = -1
 const FULFILLED =  0
 const REJECTED  =  1
 
+class AggregateError extends Error {
+  name = 'AggregateError'
+
+  constructor (errors, options) {
+    super('All promises were rejected', options)
+    this.errors = errors
+  }
+}
+
 class Promise {
   constructor (task) {
     this._state = PENDING
@@ -30,6 +39,14 @@ class Promise {
     return this.then(null, onRejected)
   }
 
+  finally (onFinally) {
+    return this.then((value) => {
+      return Promise.try(onFinally).then(() => value)
+    }, (reason) => {
+      return Promise.try(onFinally).then(() => Promise.reject(reason))
+    })
+  }
+
   static resolve (value) {
     try {
       if (getThen(value)) return value
@@ -44,18 +61,62 @@ class Promise {
     return new Promise((resolve, reject) => reject(reason))
   }
 
-  static all (promises) {
+  static try (func, ...args) {
+    try {
+      let result = func(...args)
+      return Promise.resolve(result)
+    } catch (error) {
+      return Promise.reject(error)
+    }
+  }
+
+  static allSettled (promises) {
     return new Promise((resolve, reject) => {
-      let list = []
+      let results = []
       let n = promises.length
 
-      if (n === 0) return resolve(list)
+      if (n === 0) return resolve(results)
 
       for (let [i, promise] of promises.entries()) {
         Promise.resolve(promise).then((value) => {
-          list[i] = value
-          if (--n === 0) resolve(list)
+          results[i] = { status: 'fulfilled', value }
+          if (--n === 0) resolve(results)
+        }, (reason) => {
+          results[i] = { status: 'rejected', reason }
+          if (--n === 0) resolve(results)
+        })
+      }
+    })
+  }
+
+  static all (promises) {
+    return new Promise((resolve, reject) => {
+      let results = []
+      let n = promises.length
+
+      if (n === 0) return resolve(results)
+
+      for (let [i, promise] of promises.entries()) {
+        Promise.resolve(promise).then((value) => {
+          results[i] = value
+          if (--n === 0) resolve(results)
         }, reject)
+      }
+    })
+  }
+
+  static any (promises) {
+    return new Promise((resolve, reject) => {
+      let errors = []
+      let n = promises.length
+
+      if (n === 0) return reject(new AggregateError([]))
+
+      for (let [i, promise] of promises.entries()) {
+        Promise.resolve(promise).then(resolve, (reason) => {
+          errors[i] = reason
+          if (--n === 0) reject(new AggregateError(errors))
+        })
       }
     })
   }
