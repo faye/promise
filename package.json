@@ -1,0 +1,21 @@
+{
+  "name": "faye-promise",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "1.0.0",
+  "main": "promise",
+  "dependencies": {
+    "asap": "*"
+  },
+  "devDependencies": {
+    "promises-aplus-tests": "~2.1.0"
+  },
+  "scripts": {
+    "test": "promises-aplus-tests promise.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/faye/promise.git"
+  },
+  "bugs": "https://github.com/faye/promise/issues"
+}
