@@ -4,9 +4,6 @@
   "license": "Apache-2.0",
   "version": "1.0.0",
   "main": "promise",
-  "dependencies": {
-    "asap": "*"
-  },
   "devDependencies": {
     "promises-aplus-tests": "~2.1.0"
   },

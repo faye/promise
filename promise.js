@@ -1,172 +1,175 @@
-'use strict';
+'use strict'
 
-var asap = require('asap');
+const PENDING   = -1
+const FULFILLED =  0
+const REJECTED  =  1
 
-var PENDING   = -1,
-    FULFILLED =  0,
-    REJECTED  =  1;
+class Promise {
+  constructor (task) {
+    this._state = PENDING
+    this._value = null
+    this._defer = []
 
-var Promise = function(task) {
-  this._state = PENDING;
-  this._value = null;
-  this._defer = [];
-
-  execute(this, task);
-};
-
-Promise.prototype.then = function(onFulfilled, onRejected) {
-  var promise = new Promise();
-
-  var deferred = {
-    promise:     promise,
-    onFulfilled: onFulfilled,
-    onRejected:  onRejected
-  };
-
-  if (this._state === PENDING)
-    this._defer.push(deferred);
-  else
-    propagate(this, deferred);
-
-  return promise;
-};
-
-Promise.prototype['catch'] = function(onRejected) {
-  return this.then(null, onRejected);
-};
-
-var execute = function(promise, task) {
-  if (typeof task !== 'function') return;
-
-  var calls = 0;
-
-  var resolvePromise = function(value) {
-    if (calls++ === 0) resolve(promise, value);
-  };
-
-  var rejectPromise = function(reason) {
-    if (calls++ === 0) reject(promise, reason);
-  };
-
-  try {
-    task(resolvePromise, rejectPromise);
-  } catch (error) {
-    rejectPromise(error);
+    execute(this, task)
   }
-};
 
-var propagate = function(promise, deferred) {
-  var state   = promise._state,
-      value   = promise._value,
-      next    = deferred.promise,
-      handler = [deferred.onFulfilled, deferred.onRejected][state],
-      pass    = [resolve, reject][state];
+  then (onFulfilled, onRejected) {
+    let promise = new Promise()
+    let deferred = { promise, onFulfilled, onRejected }
 
-  if (typeof handler !== 'function')
-    return pass(next, value);
-
-  asap(function() {
-    try {
-      resolve(next, handler(value));
-    } catch (error) {
-      reject(next, error);
+    if (this._state === PENDING) {
+      this._defer.push(deferred)
+    } else {
+      propagate(this, deferred)
     }
-  });
-};
 
-var resolve = function(promise, value) {
-  if (promise === value)
-    return reject(promise, new TypeError('Recursive promise chain detected'));
-
-  var then;
-
-  try {
-    then = getThen(value);
-  } catch (error) {
-    return reject(promise, error);
+    return promise
   }
 
-  if (!then) return fulfill(promise, value);
-
-  execute(promise, function(resolvePromise, rejectPromise) {
-    then.call(value, resolvePromise, rejectPromise);
-  });
-};
-
-var getThen = function(value) {
-  var type = typeof value,
-      then = (type === 'object' || type === 'function') && value && value.then;
-
-  return (typeof then === 'function')
-         ? then
-         : null;
-};
-
-var fulfill = function(promise, value) {
-  settle(promise, FULFILLED, value);
-};
-
-var reject = function(promise, reason) {
-  settle(promise, REJECTED, reason);
-};
-
-var settle = function(promise, state, value) {
-  var defer = promise._defer, i = 0;
-
-  promise._state = state;
-  promise._value = value;
-  promise._defer = null;
-
-  if (defer.length === 0) return;
-  while (i < defer.length) propagate(promise, defer[i++]);
-};
-
-Promise.resolve = function(value) {
-  try {
-    if (getThen(value)) return value;
-  } catch (error) {
-    return Promise.reject(error);
+  catch (onRejected) {
+    return this.then(null, onRejected)
   }
 
-  return new Promise(function(resolve, reject) { resolve(value) });
-};
+  static resolve (value) {
+    try {
+      if (getThen(value)) return value
+    } catch (error) {
+      return Promise.reject(error)
+    }
 
-Promise.reject = function(reason) {
-  return new Promise(function(resolve, reject) { reject(reason) });
-};
+    return new Promise((resolve, reject) => resolve(value))
+  }
 
-Promise.all = function(promises) {
-  return new Promise(function(resolve, reject) {
-    var list = [], n = promises.length, i;
+  static reject (reason) {
+    return new Promise((resolve, reject) => reject(reason))
+  }
 
-    if (n === 0) return resolve(list);
+  static all (promises) {
+    return new Promise((resolve, reject) => {
+      let list = []
+      let n = promises.length
 
-    var push = function(promise, i) {
-      Promise.resolve(promise).then(function(value) {
-        list[i] = value;
-        if (--n === 0) resolve(list);
-      }, reject);
-    };
+      if (n === 0) return resolve(list)
 
-    for (i = 0; i < n; i++) push(promises[i], i);
-  });
-};
+      for (let [i, promise] of promises.entries()) {
+        Promise.resolve(promise).then((value) => {
+          list[i] = value
+          if (--n === 0) resolve(list)
+        }, reject)
+      }
+    })
+  }
 
-Promise.race = function(promises) {
-  return new Promise(function(resolve, reject) {
-    for (var i = 0, n = promises.length; i < n; i++)
-      Promise.resolve(promises[i]).then(resolve, reject);
-  });
-};
+  static race (promises) {
+    return new Promise((resolve, reject) => {
+      for (let promise of promises) {
+        Promise.resolve(promise).then(resolve, reject)
+      }
+    })
+  }
 
-Promise.deferred = function() {
-  var tuple = {};
+  static withResolvers () {
+    let tuple = null
 
-  tuple.promise = new Promise(function(resolve, reject) {
-    tuple.resolve = resolve;
-    tuple.reject  = reject;
-  });
-  return tuple;
-};
+    let promise = new Promise((resolve, reject) => {
+      tuple = { resolve, reject }
+    })
 
-module.exports = Promise;
+    tuple.promise = promise
+    return tuple
+  }
+}
+
+function execute (promise, task) {
+  if (typeof task !== 'function') return
+
+  let calls = 0
+
+  let resolvePromise = (value) => {
+    if (calls++ === 0) resolve(promise, value)
+  }
+
+  let rejectPromise = (reason) => {
+    if (calls++ === 0) reject(promise, reason)
+  }
+
+  try {
+    task(resolvePromise, rejectPromise)
+  } catch (error) {
+    rejectPromise(error)
+  }
+}
+
+function propagate (promise, deferred) {
+  let { _state, _value } = promise
+  let { promise: next, onFulfilled, onRejected } = deferred
+  let handler = [onFulfilled, onRejected][_state]
+  let pass = [resolve, reject][_state]
+
+  if (typeof handler !== 'function') {
+    return pass(next, _value)
+  }
+
+  queueMicrotask(() => {
+    try {
+      resolve(next, handler(_value))
+    } catch (error) {
+      reject(next, error)
+    }
+  })
+}
+
+function resolve (promise, value) {
+  if (promise === value) {
+    return reject(promise, new TypeError('Recursive promise chain detected'))
+  }
+
+  let then = null
+
+  try {
+    then = getThen(value)
+  } catch (error) {
+    return reject(promise, error)
+  }
+
+  if (!then) return fulfill(promise, value)
+
+  execute(promise, (resolvePromise, rejectPromise) => {
+    then.call(value, resolvePromise, rejectPromise)
+  })
+}
+
+function getThen (value) {
+  let type = typeof value
+  let then = (type === 'object' || type === 'function') && value && value.then
+
+  return (typeof then === 'function') ? then : null
+}
+
+function fulfill (promise, value) {
+  settle(promise, FULFILLED, value)
+}
+
+function reject (promise, reason) {
+  settle(promise, REJECTED, reason)
+}
+
+function settle (promise, state, value) {
+  let defer = promise._defer
+
+  promise._state = state
+  promise._value = value
+  promise._defer = null
+
+  for (let next of defer) {
+    propagate(promise, next)
+  }
+}
+
+module.exports = {
+  Promise,
+ 
+  deferred () {
+    return Promise.withResolvers()
+  }
+}
